@@ -1,0 +1,27 @@
+samples: "config/samples.tsv"
+
+fastq_dir: "data/fastq"
+genome: "data/reference/genome.fa"
+annotation: "data/reference/genes.gtf"
+
+raw_fastqc_dir: "results/qc/raw_fastqc"
+trimmed_dir: "results/trimmed"
+trimmed_fastqc_dir: "results/qc/trimmed_fastqc"
+multiqc_dir: "results/qc"
+
+star_index_dir: "results/star_index"
+aligned_dir: "results/aligned"
+stats_dir: "results/stats"
+counts_dir: "results/counts"
+analysis_dir: "results/analysis"
+deseq2_dir: "results/deseq2"
+
+trim_galore_extra: "--quality 20 --length 20"
+sjdb_overhang: 99
+featurecounts_extra: "-p -t exon -g gene_id"
+
+tthreads_fastqc: 2
+threads_trim: 4
+threads_star: 8
+threads_samtools: 4
+threads_featurecounts: 4

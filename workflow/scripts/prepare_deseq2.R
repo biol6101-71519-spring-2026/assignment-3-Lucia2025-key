@@ -25,7 +25,7 @@ cat("Reading count matrix...\n")
 counts <- read.table(snakemake@input$counts, header = TRUE, row.names = 1, sep = "\t")
 cat("Count matrix dimensions:", dim(counts), "\n")
 cat("Total reads per sample:\n")
-print(colSums(counts))
+print(colSums(counts, na.rm = TRUE))
 
 # Read sample metadata
 cat("\nReading sample metadata...\n")
@@ -34,15 +34,32 @@ cat("Sample metadata:\n")
 print(metadata)
 
 # Ensure sample order matches
-counts <- counts[, rownames(metadata)]
+counts <- counts[, rownames(metadata), drop = FALSE]
 cat("\nSample order verified.\n")
+
+# Replace NA values with 0
+cat("\nReplacing NA values with 0...\n")
+counts[is.na(counts)] <- 0
+cat("Number of NA values after cleanup:", sum(is.na(counts)), "\n")
+
+# Force counts to be a numeric matrix with preserved row/column names
+counts_mat <- as.matrix(counts)
+mode(counts_mat) <- "numeric"
+storage.mode(counts_mat) <- "integer"
+rownames(counts_mat) <- rownames(counts)
+colnames(counts_mat) <- colnames(counts)
+
+cat("Count matrix dimensions after cleanup:", dim(counts_mat), "\n")
 
 # Filter low-count genes
 cat("\nFiltering low-count genes...\n")
-min_count <- snakemake@params$min_count
-keep <- rowSums(counts >= min_count) >= 3
-counts_filtered <- counts[keep, ]
-cat("Genes before filtering:", nrow(counts), "\n")
+min_count <- if (!is.null(snakemake@params$min_count)) snakemake@params$min_count else 10
+cat("Minimum count threshold:", min_count, "\n")
+
+keep <- rowSums(counts_mat >= min_count, na.rm = TRUE) >= 3
+counts_filtered <- counts_mat[keep, , drop = FALSE]
+
+cat("Genes before filtering:", nrow(counts_mat), "\n")
 cat("Genes after filtering:", nrow(counts_filtered), "\n")
 
 # Create DESeq2 dataset
