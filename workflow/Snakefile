@@ -13,7 +13,7 @@ READS = ["1", "2"]
 
 rule all:
     input:
-        # Task 1
+        
         expand("results/qc/raw_fastqc/{sample}_R{read}_fastqc.html",
                sample=SAMPLES, read=READS),
         expand("results/trimmed/{sample}_R{read}_trimmed.fastq.gz",
@@ -21,8 +21,6 @@ rule all:
         expand("results/qc/trimmed_fastqc/{sample}_R{read}_trimmed_fastqc.html",
                sample=SAMPLES, read=READS),
         "results/qc/multiqc_report.html",
-
-        # Task 2
         expand("results/aligned/{sample}.sorted.bam", sample=SAMPLES),
         expand("results/aligned/{sample}.sorted.bam.bai", sample=SAMPLES),
         expand("results/stats/{sample}.alignment_stats.txt", sample=SAMPLES),
@@ -35,6 +33,10 @@ rule all:
         "results/analysis/correlation_heatmap.pdf",
         "results/deseq2/deseq2_dataset.rds",
         "results/deseq2/normalized_counts.tsv"
+#####################################################################
+# TASK 1: QUALITY CONTROL AND TRIMMING
+#####################################################################
+# Run FastQC on raw FASTQ files
 
 rule fastqc_raw:
     input:
@@ -51,6 +53,7 @@ rule fastqc_raw:
         mkdir -p results/qc/raw_fastqc logs/fastqc_raw
         fastqc -t {threads} -o results/qc/raw_fastqc {input.fq} > {log} 2>&1
         """
+ # Trim adapters and low-quality bases with Trim Galore       
 rule trim_galore:
     input:
         r1="data/fastq/{sample}_R1.fastq.gz",
@@ -73,6 +76,7 @@ rule trim_galore:
         mv results/trimmed/{wildcards.sample}_R1_val_1.fq.gz {output.r1}
         mv results/trimmed/{wildcards.sample}_R2_val_2.fq.gz {output.r2}
         """
+# Run FastQC again on trimmed reads
 
 rule fastqc_trimmed:
     input:
@@ -89,6 +93,7 @@ rule fastqc_trimmed:
         mkdir -p results/qc/trimmed_fastqc logs/fastqc_trimmed
         fastqc -t {threads} -o results/qc/trimmed_fastqc {input.fq} > {log} 2>&1
         """
+# Aggregate QC reports with MultiQC
 
 rule multiqc:
     input:
@@ -105,7 +110,9 @@ rule multiqc:
         mkdir -p results/qc logs
         multiqc results/qc -o results/qc -n multiqc_report.html > {log} 2>&1
         """
-
+######################################################################
+# TASK 2: ALIGNMENT AND QUANTIFICATION
+######################################################################
 rule star_index:
     input:
         genome="data/reference/genome.fa",
@@ -127,6 +134,8 @@ rule star_index:
              --sjdbGTFfile {input.gtf} \
              --sjdbOverhang 99 > {log} 2>&1
         """ 
+
+# Align trimmed reads with STAR
 
 rule star_align:
     input:
@@ -152,6 +161,7 @@ rule star_align:
 
         mv results/aligned/{wildcards.sample}.Aligned.out.bam {output.bam}
         """ 
+# Sort BAM files with samtools
 
 rule sort_bam:
     input:
@@ -167,6 +177,7 @@ rule sort_bam:
         mkdir -p results/aligned logs/sort_bam
         samtools sort -@ {threads} -o {output.bam} {input.bam} > {log} 2>&1
         """
+# Index sorted BAM files with samtools
 
 rule index_bam:
     input:
@@ -180,6 +191,7 @@ rule index_bam:
         mkdir -p logs/index_bam
         samtools index {input.bam} > {log} 2>&1
         """
+# Generate alignment statistics with samtools flagstat
 
 rule alignment_stats:
     input:
@@ -193,7 +205,9 @@ rule alignment_stats:
         mkdir -p results/stats logs/alignment_stats
         samtools flagstat {input.bam} > {output.txt} 2> {log}
         """
-
+######################################################################
+# TASK 3: DOWNSTREAM ANALYSIS
+######################################################################
 rule featurecounts:
     input:
         bam="results/aligned/{sample}.sorted.bam",
@@ -211,6 +225,9 @@ rule featurecounts:
         featureCounts -T {threads} -a {input.gtf} -o {output.counts} -p -t exon -g gene_id {input.bam} > {log} 2>&1
         """
 
+######################################################################
+# TASK 4: COUNT MATRIX GENERATION
+#######################################################################
 rule aggregate_counts:
     input:
         expand("results/counts/{sample}.counts.txt", sample=SAMPLES)
@@ -220,6 +237,9 @@ rule aggregate_counts:
         "logs/aggregate_counts.log"
     script:
         "scripts/aggregate_counts.py"
+#######################################################################
+# TASK 5: EXPLORATORY DATA ANALYSIS
+#######################################################################
 
 rule plot_pca:
     input:
@@ -243,6 +263,9 @@ rule plot_correlation:
     script:
         "scripts/plot_correlation.R"
 
+######################################################################
+# TASK 6: PREPARE DESEQ2 INPUT
+######################################################################
 rule prepare_deseq2:
     input:
         counts="results/counts/count_matrix.tsv",
