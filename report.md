@@ -9,35 +9,11 @@ The pipeline performs quality control, read trimming, alignment, gene quantifica
 
 ---
 
-## Workflow Steps
+Quality control of the raw sequencing reads indicated generally good read quality across all samples. FastQC reports showed that most reads had high Phred quality scores across the read length. Adapter contamination and low-quality bases were minimal; trimming had only a modest effect on the total number of reads retained. The trimming step removed a small fraction of low-quality bases and adapter sequences, resulting in clean reads suitable for downstream alignment.
 
-### 1. Quality Control
-Raw sequencing reads are assessed using **FastQC** to evaluate read quality, adapter contamination, and other sequencing metrics.
+Alignment of the trimmed reads to the reference genome using STAR produced consistent alignment rates across all samples. The majority of reads successfully aligned to the reference genome, indicating good sequencing quality and appropriate reference annotation. Alignment statistics were similar across control and treatment samples, suggesting no major technical issues or sample-specific biases during sequencing or preprocessing.
 
-### 2. Read Trimming
-Low-quality bases and adapter sequences are removed from the raw reads.
-
-### 3. Alignment
-Trimmed reads are aligned to the reference genome using **STAR**.
-
-### 4. BAM Processing
-Aligned reads are sorted and indexed to produce analysis-ready BAM files.
-
-### 5. Gene Quantification
-Reads are assigned to genes using **featureCounts**, producing count tables for each sample.
-
-### 6. Count Aggregation
-Individual count files are merged into a combined gene expression count matrix.
-
-### 7. Exploratory Data Analysis
-Two analyses are performed:
-
-- **Principal Component Analysis (PCA)** to visualize variation between samples
-- **Correlation Heatmap** to evaluate similarity among samples
-
-### 8. DESeq2 Dataset Preparation
-A DESeq2 dataset is created and normalized counts are generated for downstream 
-TThe workflow successfully processed RNA-seq data from raw reads through alignment, gene quantification, and exploratory analysis. The results demonstrate that the pipeline is functioning correctly and producing the expected outputs.
+Principal Component Analysis (PCA) was performed using normalized gene expression counts to explore relationships between samples. The PCA plot showed that samples clustered closely together with minimal separation between control and treatment groups. This pattern suggests limited global differences in gene expression between the two conditions in this dataset. The high similarity among samples is consistent with the high correlation observed across samples and may reflect the use of duplicated or highly similar input reads used for testing the workflow.
 
 However, because the dataset used for testing contains highly similar samples, the downstream exploratory analyses (PCA and correlation) show minimal variation between conditions
 ---
