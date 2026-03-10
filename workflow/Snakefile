@@ -13,7 +13,6 @@ READS = ["1", "2"]
 
 rule all:
     input:
-        
         expand("results/qc/raw_fastqc/{sample}_R{read}_fastqc.html",
                sample=SAMPLES, read=READS),
         expand("results/trimmed/{sample}_R{read}_trimmed.fastq.gz",
