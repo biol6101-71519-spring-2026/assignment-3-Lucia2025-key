@@ -17,3 +17,4 @@ Principal Component Analysis (PCA) was performed using normalized gene expressio
 
 However, because the dataset used for testing contains highly similar samples, the downstream exploratory analyses (PCA and correlation) show minimal variation between conditions
 ---
+The RNA sequences took a very long time to download eventually I used the first one which managed to download and duplicated it, then renamed the treatments and the control samples which served as my guideline to comeup with the workflow. When I will generate my data I will use my samples and come up with the workflow. 
