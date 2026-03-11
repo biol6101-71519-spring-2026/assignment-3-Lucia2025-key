@@ -1,8 +1,7 @@
 # Snakemake
 .snakemake/
 
-# Results and intermediate files
-results/
+# Results and intermediate filesresults/
 logs/
 
 # Data files (too large for git)
@@ -15,7 +14,23 @@ __pycache__/
 *.so
 .Python
 env/
-venv/
+venv/# Ignore large sequencing data
+data/fastq/*.fastq.gz
+data/fastq/*.fastq
+data/fastq/*.fq.gz
+
+# Ignore alignment files
+*.bam
+*.sam
+*.bai
+
+# Ignore temporary files
+*.log
+*.tmp
+
+# Ignore conda environments
+*.env
+.env
 
 # R
 .Rhistory

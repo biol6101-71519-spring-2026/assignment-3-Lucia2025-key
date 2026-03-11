@@ -1,54 +1,280 @@
-# Load configuration
+
 configfile: "config/config.yaml"
 
-# TODO: Import any necessary Python libraries (e.g., pandas)
+import csv
 
-# TODO: Read sample information from config file
+def load_samples(tsv_file):
+    with open(tsv_file) as f:
+        reader = csv.DictReader(f, delimiter="\t")
+        return [row["sample"] for row in reader]
 
-# Rule all: define the final outputs of the workflow
+SAMPLES = load_samples(config["samples"])
+READS = ["1", "2"]
+
 rule all:
     input:
-        # TODO: Add all final output files here
+        expand("results/qc/raw_fastqc/{sample}_R{read}_fastqc.html",
+               sample=SAMPLES, read=READS),
+        expand("results/trimmed/{sample}_R{read}_trimmed.fastq.gz",
+               sample=SAMPLES, read=READS),
+        expand("results/qc/trimmed_fastqc/{sample}_R{read}_trimmed_fastqc.html",
+               sample=SAMPLES, read=READS),
+        "results/qc/multiqc_report.html",
+        expand("results/aligned/{sample}.sorted.bam", sample=SAMPLES),
+        expand("results/aligned/{sample}.sorted.bam.bai", sample=SAMPLES),
+        expand("results/stats/{sample}.alignment_stats.txt", sample=SAMPLES),
+        expand("results/counts/{sample}.counts.txt", sample=SAMPLES),
+        expand("results/counts/{sample}.counts.txt.summary", sample=SAMPLES),
+         expand("results/counts/{sample}.counts.txt", sample=SAMPLES),
+        expand("results/counts/{sample}.counts.txt.summary", sample=SAMPLES),
+        "results/counts/count_matrix.tsv",
+        "results/analysis/pca_plot.pdf",
+        "results/analysis/correlation_heatmap.pdf",
+        "results/deseq2/deseq2_dataset.rds",
+        "results/deseq2/normalized_counts.tsv"
+#####################################################################
+# TASK 1: QUALITY CONTROL AND TRIMMING
+#####################################################################
+# Run FastQC on raw FASTQ files
 
+rule fastqc_raw:
+    input:
+        fq="data/fastq/{sample}_R{read}.fastq.gz"
+    output:
+        html="results/qc/raw_fastqc/{sample}_R{read}_fastqc.html",
+        zip="results/qc/raw_fastqc/{sample}_R{read}_fastqc.zip"
+    log:
+        "logs/fastqc_raw/{sample}_R{read}.log"
+    threads:
+        2
+    shell:
+        """
+        mkdir -p results/qc/raw_fastqc logs/fastqc_raw
+        fastqc -t {threads} -o results/qc/raw_fastqc {input.fq} > {log} 2>&1
+        """
+ # Trim adapters and low-quality bases with Trim Galore       
+rule trim_galore:
+    input:
+        r1="data/fastq/{sample}_R1.fastq.gz",
+        r2="data/fastq/{sample}_R2.fastq.gz"
+    output:
+        r1="results/trimmed/{sample}_R1_trimmed.fastq.gz",
+        r2="results/trimmed/{sample}_R2_trimmed.fastq.gz"
+    log:
+        "logs/trim_galore/{sample}.log"
+    threads:
+        4
+    shell:
+        """
+        mkdir -p results/trimmed logs/trim_galore
+        trim_galore --paired --quality 20 --length 20 \
+            --cores {threads} \
+            --output_dir results/trimmed \
+            {input.r1} {input.r2} > {log} 2>&1
 
-# ============================================================================
-# TASK 1: Quality Control and Trimming
-# ============================================================================
+        mv results/trimmed/{wildcards.sample}_R1_val_1.fq.gz {output.r1}
+        mv results/trimmed/{wildcards.sample}_R2_val_2.fq.gz {output.r2}
+        """
+# Run FastQC again on trimmed reads
 
-# TODO: Add rules for fastqc_raw, trim_galore, fastqc_trimmed, multiqc
+rule fastqc_trimmed:
+    input:
+        fq="results/trimmed/{sample}_R{read}_trimmed.fastq.gz"
+    output:
+        html="results/qc/trimmed_fastqc/{sample}_R{read}_trimmed_fastqc.html",
+        zip="results/qc/trimmed_fastqc/{sample}_R{read}_trimmed_fastqc.zip"
+    log:
+        "logs/fastqc_trimmed/{sample}_R{read}.log"
+    threads:
+        2
+    shell:
+        """
+        mkdir -p results/qc/trimmed_fastqc logs/fastqc_trimmed
+        fastqc -t {threads} -o results/qc/trimmed_fastqc {input.fq} > {log} 2>&1
+        """
+# Aggregate QC reports with MultiQC
 
+rule multiqc:
+    input:
+        expand("results/qc/raw_fastqc/{sample}_R{read}_fastqc.zip",
+               sample=SAMPLES, read=READS),
+        expand("results/qc/trimmed_fastqc/{sample}_R{read}_trimmed_fastqc.zip",
+               sample=SAMPLES, read=READS)
+    output:
+        "results/qc/multiqc_report.html"
+    log:
+        "logs/multiqc.log"
+    shell:
+        """
+        mkdir -p results/qc logs
+        multiqc results/qc -o results/qc -n multiqc_report.html > {log} 2>&1
+        """
+######################################################################
+# TASK 2: ALIGNMENT AND QUANTIFICATION
+######################################################################
+rule star_index:
+    input:
+        genome="data/reference/genome.fa",
+        gtf="data/reference/genes.gtf"
+    output:
+        sa="results/star_index/SA",
+        genome_file="results/star_index/Genome"
+    log:
+        "logs/star_index.log"
+    threads:
+        8
+    shell:
+        """
+        mkdir -p results/star_index logs
+        STAR --runThreadN {threads} \
+             --runMode genomeGenerate \
+             --genomeDir results/star_index \
+             --genomeFastaFiles {input.genome} \
+             --sjdbGTFfile {input.gtf} \
+             --sjdbOverhang 99 > {log} 2>&1
+        """ 
 
-# ============================================================================
-# TASK 2: Read Alignment
-# ============================================================================
+# Align trimmed reads with STAR
 
-# TODO: Add rules for star_index, star_align, sort_bam, index_bam, alignment_stats
+rule star_align:
+    input:
+        sa=rules.star_index.output.sa,
+        genome_file=rules.star_index.output.genome_file,
+        r1="results/trimmed/{sample}_R1_trimmed.fastq.gz",
+        r2="results/trimmed/{sample}_R2_trimmed.fastq.gz"
+    output:
+        bam=temp("results/aligned/{sample}.unsorted.bam")
+    log:
+        "logs/star_align/{sample}.log"
+    threads:
+        8
+    shell:
+        """
+        mkdir -p results/aligned logs/star_align
+        STAR --runThreadN {threads} \
+             --genomeDir results/star_index \
+             --readFilesIn {input.r1} {input.r2} \
+             --readFilesCommand zcat \
+             --outSAMtype BAM Unsorted \
+             --outFileNamePrefix results/aligned/{wildcards.sample}. > {log} 2>&1
 
+        mv results/aligned/{wildcards.sample}.Aligned.out.bam {output.bam}
+        """ 
+# Sort BAM files with samtools
 
-# ============================================================================
-# TASK 3: Read Quantification
-# ============================================================================
+rule sort_bam:
+    input:
+        bam=rules.star_align.output.bam
+    output:
+        bam="results/aligned/{sample}.sorted.bam"
+    log:
+        "logs/sort_bam/{sample}.log"
+    threads:
+        4
+    shell:
+        """
+        mkdir -p results/aligned logs/sort_bam
+        samtools sort -@ {threads} -o {output.bam} {input.bam} > {log} 2>&1
+        """
+# Index sorted BAM files with samtools
 
-# TODO: Add rule for feature_counts
+rule index_bam:
+    input:
+        bam=rules.sort_bam.output.bam
+    output:
+        bai="results/aligned/{sample}.sorted.bam.bai"
+    log:
+        "logs/index_bam/{sample}.log"
+    shell:
+        """
+        mkdir -p logs/index_bam
+        samtools index {input.bam} > {log} 2>&1
+        """
+# Generate alignment statistics with samtools flagstat
 
+rule alignment_stats:
+    input:
+        bam=rules.sort_bam.output.bam
+    output:
+        txt="results/stats/{sample}.alignment_stats.txt"
+    log:
+        "logs/alignment_stats/{sample}.log"
+    shell:
+        """
+        mkdir -p results/stats logs/alignment_stats
+        samtools flagstat {input.bam} > {output.txt} 2> {log}
+        """
+######################################################################
+# TASK 3: DOWNSTREAM ANALYSIS
+######################################################################
+rule featurecounts:
+    input:
+        bam="results/aligned/{sample}.sorted.bam",
+        gtf="data/reference/genes.gtf"
+    output:
+        counts="results/counts/{sample}.counts.txt",
+        summary="results/counts/{sample}.counts.txt.summary"
+    log:
+        "logs/featurecounts/{sample}.log"
+    threads:
+        4
+    shell:
+        """
+        mkdir -p results/counts logs/featurecounts
+        featureCounts -T {threads} -a {input.gtf} -o {output.counts} -p -t exon -g gene_id {input.bam} > {log} 2>&1
+        """
 
-# ============================================================================
-# TASK 4: Count Matrix Generation
-# ============================================================================
+######################################################################
+# TASK 4: COUNT MATRIX GENERATION
+#######################################################################
+rule aggregate_counts:
+    input:
+        expand("results/counts/{sample}.counts.txt", sample=SAMPLES)
+    output:
+        "results/counts/count_matrix.tsv"
+    log:
+        "logs/aggregate_counts.log"
+    script:
+        "scripts/aggregate_counts.py"
+#######################################################################
+# TASK 5: EXPLORATORY DATA ANALYSIS
+#######################################################################
 
-# TODO: Add rule to aggregate counts using workflow/scripts/aggregate_counts.py
+rule plot_pca:
+    input:
+        counts="results/counts/count_matrix.tsv",
+        metadata="config/samples.tsv"
+    output:
+        "results/analysis/pca_plot.pdf"
+    log:
+        "logs/plot_pca.log"
+    script:
+        "scripts/plot_pca.R"
 
+rule plot_correlation:
+    input:
+        counts="results/counts/count_matrix.tsv",
+        metadata="config/samples.tsv"
+    output:
+        "results/analysis/correlation_heatmap.pdf"
+    log:
+        "logs/plot_correlation.log"
+    script:
+        "scripts/plot_correlation.R"
 
-# ============================================================================
-# TASK 5: Exploratory Analysis
-# ============================================================================
-
-# TODO: Add rules to generate PCA and correlation plots using R scripts
-
-
-# ============================================================================
-# TASK 6: DESeq2 Preparation  
-# ============================================================================
-
-# TODO: Add rule to prepare DESeq2 dataset using workflow/scripts/prepare_deseq2.R
-
+######################################################################
+# TASK 6: PREPARE DESEQ2 INPUT
+######################################################################
+rule prepare_deseq2:
+    input:
+        counts="results/counts/count_matrix.tsv",
+        metadata="config/samples.tsv"
+    output:
+        dds="results/deseq2/deseq2_dataset.rds",
+        normalized="results/deseq2/normalized_counts.tsv"
+    log:
+        "logs/prepare_deseq2.log"
+    params:
+        min_count=10
+    script:
+        "scripts/prepare_deseq2.R"
